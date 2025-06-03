@@ -18,12 +18,23 @@ let reader = new Reader(dataToBeCompiled);
 let scanner = new Scanner(reader);
 let parser = new Parser(scanner);
 
-expressionBlockNode = parser.parse();
+// Call the new XJC parser function
+let includedFiles = parser.parseXjc();
 
-console.log(expressionBlockNode);
-
-Errors.each(function(error, i) {
-  errorLog(
-    "Line " + error.line + ": (" + Errors.type[error.type] + ") " + error.msg
-  );
+console.log("Included Files:");
+includedFiles.forEach(file => {
+  console.log(file);
 });
+console.log("\\n---");
+
+// Print any errors accumulated during parsing
+if (Errors.getErrorCount() > 0) {
+  console.error("Errors encountered during parsing:");
+  Errors.getAllErrors().forEach(error => { // Use getAllErrors() and forEach for simplicity
+    errorLog(
+      "Line " + error.line + ": (" + (Errors.type[error.type] || "Unknown Type") + ") " + error.msg
+    );
+  });
+} else {
+  console.log("Parsing completed with no errors.");
+}
