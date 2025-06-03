@@ -398,10 +398,11 @@ class Parser {
     const filenameComponent = this.currentToken.text;
     // this.nextToken(); // Consume IDENTIFIER_TOKEN (filename part) -> This will be done by the main loop's nextToken()
 
-    const fullFilepath = dirPathComponent + filenameComponent; // Simple concatenation
+    const fullFilepath = dirPathComponent + filenameComponent; // Keep for potential logging or other uses if needed
 
     if (this.isCurrentBlockActive()) {
-      this.includedFiles.push(fullFilepath);
+      // Only push the filename component as per the new requirement
+      this.includedFiles.push(filenameComponent);
     }
     // Consume any other tokens on the line until next directive or EOS
     // This helps if there are stray characters or comments after the include.
