@@ -1,0 +1,14 @@
+#DEFINE <is_standalone_xjc> <false> ''<true>
+
+#IF "<is_standalone_xjc>" eq "<true>" THEN
+   #INCLUDE <template_files>holeL14_PLRC.rcp
+   #INCLUDE <template_files>holeL14_PLRC_flow.boolean
+   #INCLUDE <template_files>holeL14_PLRC_blk.boolean
+#ELSE
+   #INCLUDE <template_files>holeL14_PLRC.rcp
+   #INCLUDE <template_files>holeL14_PPT_flow.boolean
+   #INCLUDE <template_files>holeL14_PPT_blk.boolean
+   #INCLUDE <template_files>holeL14_PLRC_blk.boolean
+   #INCLUDE <template_files>holeL14.dsc
+   #INCLUDE <template_files>holeL14_PPT.rcp 
+#ENDIF
