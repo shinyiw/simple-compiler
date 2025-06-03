@@ -188,6 +188,7 @@ class Parser {
   parseXjc() {
     this.definedVariables = {}; // To store #DEFINEd variables
     this.includedFiles = []; // To store #INCLUDEd file paths
+    this.modelFilenames = []; // To store model filenames from #DEFINE <model> or #DEFINE <rule>
     this.activeBlocks = [{ type: "GLOBAL", active: true }]; // Stack to manage #IF/#ELSE blocks
 
     this.nextToken(); // Initialize currentToken
@@ -260,31 +261,66 @@ class Parser {
   parseDefine() {
     // Expect #DEFINE <var_name> <value> ... (value can be complex, for now, simple bracketed content)
     // #DEFINE <is_standalone_xjc> <false> ''<true>
-    this.nextToken(); // Consume DEFINE
-    if (this.currentToken.type !== Token.tokens.ANGLE_BRACKET_CONTENT) {
-      this.reportError("Expected variable name in <...> after #DEFINE");
-      return;
-    }
-    const varName = this.currentToken.text;
-    this.nextToken(); // Consume <var_name>
+    // #DEFINE <model> TM60L2252X_augmented 'OPC LE'
+    // #DEFINE <rule> THJPL2205E.func 'PR model 'OPC LE'
+
+    this.nextToken(); // Consume #DEFINE token itself, currentToken is now the first token after #DEFINE
 
     if (this.currentToken.type !== Token.tokens.ANGLE_BRACKET_CONTENT) {
-      // It might also be a quoted string or other literal based on example `''<true>`
-      // For now, strictly expect <value> for simplicity
-      this.reportError("Expected value in <...> for #DEFINE " + varName);
+      this.reportError("Expected <key> in angle brackets after #DEFINE");
+      this.skipToNextDirectiveOrEof(); // error recovery
       return;
     }
-    const value = this.currentToken.text;
-    
-    if (this.isCurrentBlockActive()) {
-      this.definedVariables[varName] = value;
-    }
-    // The example #DEFINE <is_standalone_xjc> <false> ''<true> has more parts.
-    // Current implementation only takes the first <value>.
-    // We need to consume tokens until the end of the line or next directive.
-    while(this.lookahead() !== Token.tokens.EOS_TOKEN &&
-          !this.isDirectiveToken(this.lookahead())) {
+    const defineKey = this.currentToken.text; // e.g., "is_standalone_xjc", "model", "rule"
+    this.nextToken(); // Consume <key> token
+
+    if (defineKey === "rule" || defineKey.startsWith("model")) {
+      // This is a #DEFINE <model> FILENAME or #DEFINE <rule> FILENAME directive
+      if (this.currentToken.type !== Token.tokens.IDENTIFIER_TOKEN) {
+        this.reportError(`Expected IDENTIFIER (model/rule filename) after #DEFINE <${defineKey}>. Got ${Token.backwardMap[this.currentToken.type]}`);
+        this.skipToNextDirectiveOrEof();
+        return;
+      }
+      const modelFilename = this.currentToken.text;
+      if (this.isCurrentBlockActive()) {
+        this.modelFilenames.push(modelFilename);
+      }
+      // this.nextToken(); // Consume the IDENTIFIER_TOKEN (modelFilename) - this will be done by the main loop's nextToken
+
+      // Consume any remaining tokens on the current line (e.g., comments)
+      // The main loop's nextToken() will handle moving past the IDENTIFIER_TOKEN.
+      // We need to ensure we consume anything else *before* the main loop tries to parse the next directive.
+      // Lookahead until next directive or EOS. The current nextToken() in main loop might be enough.
+      // Let's add explicit consumption here to be safe for remaining parts of the line.
+      while (this.lookahead() !== Token.tokens.EOS_TOKEN &&
+             !this.isDirectiveToken(this.lookahead()) &&
+             this.lookahead() !== Token.tokens.NEWLINE_TOKEN /* Assuming NEWLINE means end of this define for practical purposes */ ) {
+        this.nextToken(); // consume rest of the line tokens like comments 'OPC LE'
+      }
+
+    } else {
+      // This is a standard #DEFINE <var_name> <value> directive
+      if (this.currentToken.type !== Token.tokens.ANGLE_BRACKET_CONTENT) {
+        this.reportError(`Expected <value> in angle brackets after #DEFINE <${defineKey}>. Got ${Token.backwardMap[this.currentToken.type]}`);
+        this.skipToNextDirectiveOrEof();
+        return;
+      }
+      const value = this.currentToken.text;
+      // this.nextToken(); // Consume <value> token - done by main loop
+
+      if (this.isCurrentBlockActive()) {
+        this.definedVariables[defineKey] = value; // varName is defineKey here
+      }
+
+      // Consume any further parts of a complex define like ''<true>
+      // The example #DEFINE <is_standalone_xjc> <false> ''<true> has more parts.
+      // Current implementation only takes the first <value>.
+      // This loop will consume them.
+      while (this.lookahead() !== Token.tokens.EOS_TOKEN &&
+            !this.isDirectiveToken(this.lookahead()) &&
+            this.lookahead() !== Token.tokens.NEWLINE_TOKEN ) {
         this.nextToken(); // consume rest of the line
+      }
     }
   }
   
@@ -376,33 +412,25 @@ class Parser {
   }
 
   parseInclude() {
-    // Expect #INCLUDE <directory_path_component>filename_component
-    this.nextToken(); // Consume INCLUDE token itself
+    // Expect #INCLUDE PATH_IDENTIFIER
+    this.nextToken(); // Consume INCLUDE token itself, currentToken is now the first token of the path
 
-    if (this.currentToken.type !== Token.tokens.ANGLE_BRACKET_CONTENT) {
-      this.reportError("Expected <directory_path> after #INCLUDE");
-      this.skipToNextDirectiveOrEof(); // Skip to recover
-      return;
-    }
-    const dirPathComponent = this.currentToken.text;
-    this.nextToken(); // Consume <directory_path_component>
-
-    // Now expect the filename component as an IDENTIFIER
     if (this.currentToken.type !== Token.tokens.IDENTIFIER_TOKEN) {
       this.reportError(
-        `Expected filename after <${dirPathComponent}> in #INCLUDE. Got ${Token.backwardMap[this.currentToken.type] || this.currentToken.text}`
+        `Expected IDENTIFIER (filepath) after #INCLUDE. Got ${Token.backwardMap[this.currentToken.type] || this.currentToken.text }`
       );
       this.skipToNextDirectiveOrEof(); // Skip to recover
       return;
     }
-    const filenameComponent = this.currentToken.text;
-    // this.nextToken(); // Consume IDENTIFIER_TOKEN (filename part) -> This will be done by the main loop's nextToken()
-
-    const fullFilepath = dirPathComponent + filenameComponent; // Keep for potential logging or other uses if needed
+    
+    const filepath = this.currentToken.text;
+    // The IDENTIFIER_TOKEN (filepath) will be consumed by the main loop's nextToken() call.
 
     if (this.isCurrentBlockActive()) {
-      // Only push the filename component as per the new requirement
-      this.includedFiles.push(filenameComponent);
+      // As per previous requirements, only push the filename component.
+      // We need to extract filename from the full path.
+      const filenameOnly = filepath.substring(filepath.lastIndexOf('/') + 1);
+      this.includedFiles.push(filenameOnly);
     }
     // Consume any other tokens on the line until next directive or EOS
     // This helps if there are stray characters or comments after the include.
@@ -430,6 +458,10 @@ class Parser {
     if (this.currentToken.type !== Token.tokens.EOS_TOKEN && !this.isDirectiveToken(this.currentToken.type)) {
        this.nextToken(); // Ensure progress if not already on a directive
     }
+  }
+
+  getModelFiles() {
+    return this.modelFilenames;
   }
 }
 
