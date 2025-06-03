@@ -37,7 +37,21 @@ class Scanner {
           if (c === '#') {
             this.state = Scanner.DIRECTIVE_STATE;
             bufferStr = c; // Keep '#' for now to identify it's a directive line
-          } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z")) {
+          // Check for characters that can start an identifier (letters, '_', or '/')
+          } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_' || c === '/') {
+            // If it's a slash, we need to determine if it's a comment, division, or path start.
+            if (c === '/') {
+              let nextChar = this.reader.nextChar(); // Look ahead
+              this.reader.retract(); // Retract immediately, as we only wanted to peek
+              
+              if (nextChar === '/' || nextChar === '*') {
+                // It's a comment, delegate to SLASH_STATE by re-processing '/'
+                this.reader.retract(); // Retract current 'c' which is '/'
+                this.state = Scanner.START_STATE; // to re-evaluate '/'
+                continue; // Re-evaluate '/' in the next iteration to go to SLASH_STATE path
+              }
+              // Otherwise, it's a path starting with '/', treat as identifier part
+            }
             this.state = Scanner.IDENTIFIER_STATE;
             bufferStr = c;
           } else if (c >= "0" && c <= "9") {
@@ -133,8 +147,20 @@ class Scanner {
                   // Fall through to default to ignore or handle as error token
                 }
                 break; // Added break
-              case "/":
-                this.state = Scanner.SLASH_STATE;
+              case "/": // This case in the switch(c) block handles actual division or comments
+                // The IDENTIFIER_STATE starter above handles paths starting with '/'
+                // This means if we reach here, '/' was not followed by path-like characters
+                // or it was whitespace-separated.
+                let nextCharAfterSlash = this.reader.nextChar();
+                this.reader.retract(); // peek
+                if (nextCharAfterSlash === '/' || nextCharAfterSlash === '*') {
+                    this.state = Scanner.SLASH_STATE; // Let SLASH_STATE handle comment
+                } else {
+                    // It's a DIV_TOKEN if not starting a comment or path.
+                    // This assumes paths starting with / are handled by IDENTIFIER_STATE transition.
+                    // If IDENTIFIER_STATE did not pick it up, it might be a standalone '/'
+                    return this.makeToken(Token.tokens.DIV_TOKEN, "/");
+                }
                 break;
               case "&":
                 if (this.reader.nextChar() === "&") {
@@ -318,18 +344,27 @@ class Scanner {
             this.state = Scanner.START_STATE;
             return this.makeToken(Token.tokens.BLOCKCOMMENT_TOKEN, bufferStr);
           } else {
-            this.state = Scanner.START_STATE;
-            this.reader.retract();
-            return this.makeToken(Token.tokens.DIV_TOKEN);
+            // This is the original DIV_TOKEN logic from SLASH_STATE
+            // It should only be reached if SLASH_STATE determined it's not a comment.
+            // We need to ensure paths starting with / are routed to IDENTIFIER_STATE from START_STATE.
+            // If execution reaches here, it means '/' was not part of a comment.
+            // The modified START_STATE should ideally handle path-starting slashes.
+            // If it's a simple '/', it becomes DIV_TOKEN.
+            this.state = Scanner.START_STATE; // Reset state
+            this.reader.retract(); // Retract the character after '/' that wasn't part of a comment
+            return this.makeToken(Token.tokens.DIV_TOKEN, "/");
           }
       }
     }
   }
 }
 
+// Ensure Reader has a peekChar method if used, or simulate with nextChar/retract
+// For this implementation, I've used nextChar/retract to simulate peeking.
+
 Scanner.START_STATE = 1; // every FSM should have a start state
 Scanner.IDENTIFIER_STATE = Scanner.START_STATE + 1;
-Scanner.SLASH_STATE = Scanner.IDENTIFIER_STATE + 1;
-Scanner.DIRECTIVE_STATE = Scanner.SLASH_STATE + 1; // New state
+Scanner.SLASH_STATE = Scanner.IDENTIFIER_STATE + 1; // For actual comment parsing
+Scanner.DIRECTIVE_STATE = Scanner.SLASH_STATE + 1;
 
 module.exports = Scanner;
