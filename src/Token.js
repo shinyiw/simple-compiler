@@ -54,6 +54,15 @@ Token.tokens.LINECOMMENT_TOKEN = Token.tokens.NOT_TOKEN + 1;
 Token.tokens.BLOCKCOMMENT_TOKEN = Token.tokens.LINECOMMENT_TOKEN + 1;
 Token.tokens.NEWLINE_TOKEN = Token.tokens.BLOCKCOMMENT_TOKEN + 1;
 
+// XJC specific tokens
+Token.tokens.DIRECTIVE_INCLUDE = Token.tokens.NEWLINE_TOKEN + 1;
+Token.tokens.DIRECTIVE_DEFINE = Token.tokens.DIRECTIVE_INCLUDE + 1;
+Token.tokens.DIRECTIVE_IF = Token.tokens.DIRECTIVE_DEFINE + 1;
+Token.tokens.DIRECTIVE_ELSE = Token.tokens.DIRECTIVE_IF + 1;
+Token.tokens.DIRECTIVE_ENDIF = Token.tokens.DIRECTIVE_ELSE + 1;
+Token.tokens.ANGLE_BRACKET_CONTENT = Token.tokens.DIRECTIVE_ENDIF + 1; // e.g. <filepath> or <variable_name>
+Token.tokens.DIRECTIVE_KEYWORD = Token.tokens.ANGLE_BRACKET_CONTENT + 1; // THEN, EQ
+
 Token.backwardMap = {}; // for inverse look-up
 
 for (let x in Token.tokens) {
