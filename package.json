@@ -3,6 +3,9 @@
   "author": "jaceju <jaceju@kkbox.com>",
   "private": true,
   "license": "MIT",
+  "scripts": {
+    "parse:xjc": "node app.js"
+  },
   "devDependencies": {
     "prettier": "1.18.2"
   }
