@@ -13,7 +13,7 @@ function errorLog(str) {
   console.error(str);
 }
 
-let dataToBeCompiled = fs.readFileSync("test.xjc", "utf8");
+let dataToBeCompiled = fs.readFileSync("test2.xjc", "utf8"); // Changed to test2.xjc
 let reader = new Reader(dataToBeCompiled);
 let scanner = new Scanner(reader);
 let parser = new Parser(scanner);
@@ -23,6 +23,14 @@ let includedFiles = parser.parseXjc();
 
 console.log("Included Files:");
 includedFiles.forEach(file => {
+  console.log(file);
+});
+console.log("\\n---");
+
+// Get and print model filenames
+let modelFiles = parser.getModelFiles();
+console.log("Model Files:");
+modelFiles.forEach(file => {
   console.log(file);
 });
 console.log("\\n---");
