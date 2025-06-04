@@ -11,7 +11,7 @@ class Scanner {
     this.state = Scanner.START_STATE;
   }
 
-  makeToken(type, text) {
+  makeToken(type, text = "") { // Default text to empty string
     this.currentToken.type = type;
     this.currentToken.text = text;
     return type;
@@ -25,9 +25,34 @@ class Scanner {
       switch (this.state) {
         case Scanner.START_STATE:
           c = this.reader.nextChar();
-          if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z")) {
+          // Skip leading whitespace characters for directives, but not for other tokens
+          // This is a bit tricky because we don't want to skip all whitespace, just leading.
+          // Let's assume directives are always at the start of a line or after other directives.
+
+          // Handle whitespace before potential directive
+          while (c === ' ' || c === '\t') {
+            c = this.reader.nextChar();
+          }
+
+          if (c === '#') {
+            this.state = Scanner.DIRECTIVE_STATE;
+            bufferStr = c; // Keep '#' for now to identify it's a directive line
+          // Check for characters that can start an identifier (letters, '_', or '/')
+          } else if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === '_' || c === '/') {
+            // If it's a slash, we need to determine if it's a comment, division, or path start.
+            if (c === '/') {
+              let nextChar = this.reader.nextChar(); // Look ahead
+              this.reader.retract(); // Retract immediately, as we only wanted to peek
+
+              if (nextChar === '/' || nextChar === '*') {
+                // It's a comment, delegate to SLASH_STATE by re-processing '/'
+                this.reader.retract(); // Retract current 'c' which is '/'
+                this.state = Scanner.START_STATE; // to re-evaluate '/'
+                continue; // Re-evaluate '/' in the next iteration to go to SLASH_STATE path
+              }
+              // Otherwise, it's a path starting with '/', treat as identifier part
+            }
             this.state = Scanner.IDENTIFIER_STATE;
-            // we need to remember what the token's text is
             bufferStr = c;
           } else if (c >= "0" && c <= "9") {
             bufferStr = c;
@@ -101,15 +126,41 @@ class Scanner {
                   this.reader.retract();
                   return this.makeToken(Token.tokens.GREATER_TOKEN);
                 }
-              case "<":
-                if (this.reader.nextChar() === "=") {
-                  return this.makeToken(Token.tokens.LESSEQUAL_TOKEN);
-                } else {
-                  this.reader.retract();
-                  return this.makeToken(Token.tokens.LESS_TOKEN);
+              case "<": // For ANGLE_BRACKET_CONTENT
+                // This will read content until '>'
+                bufferStr = "";
+                let charInBracket = this.reader.nextChar();
+                while(charInBracket !== '>' && charInBracket !== -1 && charInBracket !== '\n' && charInBracket !== '\r') {
+                  bufferStr += charInBracket;
+                  charInBracket = this.reader.nextChar();
                 }
-              case "/":
-                this.state = Scanner.SLASH_STATE;
+                if (charInBracket === '>') {
+                  return this.makeToken(Token.tokens.ANGLE_BRACKET_CONTENT, bufferStr);
+                } else {
+                  // Error or unexpected end
+                  this.reader.retract(); // Retract the non '>' char
+                  Errors.push({
+                    type: Errors.SYNTAX_ERROR,
+                    msg: "Unterminated angle bracket content",
+                    line: this.currLine
+                  });
+                  // Fall through to default to ignore or handle as error token
+                }
+                break; // Added break
+              case "/": // This case in the switch(c) block handles actual division or comments
+                // The IDENTIFIER_STATE starter above handles paths starting with '/'
+                // This means if we reach here, '/' was not followed by path-like characters
+                // or it was whitespace-separated.
+                let nextCharAfterSlash = this.reader.nextChar();
+                this.reader.retract(); // peek
+                if (nextCharAfterSlash === '/' || nextCharAfterSlash === '*') {
+                    this.state = Scanner.SLASH_STATE; // Let SLASH_STATE handle comment
+                } else {
+                    // It's a DIV_TOKEN if not starting a comment or path.
+                    // This assumes paths starting with / are handled by IDENTIFIER_STATE transition.
+                    // If IDENTIFIER_STATE did not pick it up, it might be a standalone '/'
+                    return this.makeToken(Token.tokens.DIV_TOKEN, "/");
+                }
                 break;
               case "&":
                 if (this.reader.nextChar() === "&") {
@@ -140,39 +191,57 @@ class Scanner {
               case "\r":
               case "\n":
                 this.currLine++;
+                // NEWLINE_TOKEN could be useful for XJC parser to know line endings for directives
+                // but for now, stick to requirements.
+                // this.state = Scanner.START_STATE; // Reset state for next line
+                // return this.makeToken(Token.tokens.NEWLINE_TOKEN);
                 break;
               default:
-              // ignore them
+              // ignore them, or report as unexpected character
             }
           }
           break;
         case Scanner.IDENTIFIER_STATE:
           c = this.reader.nextChar();
-          if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z")) {
+          // Allow letters, numbers (after the first char), underscores, periods, and slashes in identifiers
+          if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") ||
+              (c >= "0" && c <= "9" && bufferStr.length > 0) || // Numbers allowed if not the first character
+              c === '_' || c === '.' || c === '/') {
             bufferStr += c;
-          } else if (c === -1) {
+          } else if (c === -1) { // End of stream
+            // If bufferStr is not empty, it's an identifier at EOS
+            if (bufferStr.length > 0) {
+                 // No keywords check here, assuming IDENTIFIER_TOKEN is desired for paths at EOS
+                 this.state = Scanner.START_STATE; // Reset state
+                 return this.makeToken(Token.tokens.IDENTIFIER_TOKEN, bufferStr);
+            }
             return this.makeToken(Token.tokens.EOS_TOKEN);
           } else {
-            // stop reading it since it is not a letter anymore
-            // retract the last character we read because it does not belong to this identfier
+            // Character does not belong to this identifier. Retract and finalize token.
             this.reader.retract();
-            // change back the state to read the next token
+            // Change back state for next token
             this.state = Scanner.START_STATE;
+            // Check if the formed bufferStr is a keyword, otherwise it's an identifier
+            // This check should ideally happen *after* the full identifier is read.
+            // The original placement of keyword check was correct.
             switch (bufferStr) {
+              // XJC Keywords (like 'eq', 'THEN')
+              // Be careful: if 'eq' can be part of a path, this needs adjustment.
+              // For now, assume 'eq' and 'THEN' are standalone keywords.
+              case "eq":
+              case "THEN":
+                return this.makeToken(Token.tokens.DIRECTIVE_KEYWORD, bufferStr);
+              // Original keywords (like 'var', 'if', etc.)
               case "var":
                 return this.makeToken(Token.tokens.VAR_TOKEN);
               case "int":
               case "bool":
-                //need to pass bufferStr as well to distinguish which type it is
                 return this.makeToken(Token.tokens.TYPE_TOKEN, bufferStr);
               case "true":
               case "false":
               case "TRUE":
               case "FALSE":
-                return this.makeToken(
-                  Token.tokens.BOOLLITERAL_TOKEN,
-                  bufferStr
-                );
+                return this.makeToken(Token.tokens.BOOLLITERAL_TOKEN, bufferStr);
               case "if":
                 return this.makeToken(Token.tokens.IF_TOKEN);
               case "else":
@@ -182,10 +251,51 @@ class Scanner {
               case "print":
                 return this.makeToken(Token.tokens.PRINT_TOKEN);
               default:
+                // If it's not a keyword, it's an IDENTIFIER_TOKEN (potentially a path component)
                 return this.makeToken(Token.tokens.IDENTIFIER_TOKEN, bufferStr);
             }
           }
           break;
+        case Scanner.DIRECTIVE_STATE: // New state for handling directives
+          // We have already consumed '#' and it's in bufferStr if we kept it.
+          // Or, we can just read starting from after '#'
+          bufferStr = ""; // Reset buffer for the directive keyword
+          let directiveChar = this.reader.nextChar();
+          while ((directiveChar >= "A" && directiveChar <= "Z")) { // Directives are uppercase
+            bufferStr += directiveChar;
+            directiveChar = this.reader.nextChar();
+          }
+          this.reader.retract(); // Retract the char that's not part of the directive keyword
+          this.state = Scanner.START_STATE; // Go back to start state for the next token
+
+          switch (bufferStr) {
+            case "DEFINE":
+              return this.makeToken(Token.tokens.DIRECTIVE_DEFINE);
+            case "IF":
+              return this.makeToken(Token.tokens.DIRECTIVE_IF);
+            case "ELSE":
+              return this.makeToken(Token.tokens.DIRECTIVE_ELSE);
+            case "ENDIF":
+              return this.makeToken(Token.tokens.DIRECTIVE_ENDIF);
+            case "INCLUDE":
+              return this.makeToken(Token.tokens.DIRECTIVE_INCLUDE);
+            default:
+              Errors.push({
+                type: Errors.SYNTAX_ERROR,
+                msg: "Unknown directive: #" + bufferStr,
+                line: this.currLine
+              });
+              // Skip the rest of the line for unknown directives?
+              // For now, just return an error token or skip.
+              // This part needs robust error handling.
+              // Let's try to consume until newline.
+              let errChar = this.reader.nextChar();
+              while(errChar !== '\n' && errChar !== '\r' && errChar !== -1) {
+                errChar = this.reader.nextChar();
+              }
+              if (errChar === '\n' || errChar === '\r') this.currLine++;
+              return this.nextToken(); // Try to get the next valid token
+          }
         case Scanner.SLASH_STATE:
           d = this.reader.nextChar();
           if (d === "/") {
@@ -234,17 +344,27 @@ class Scanner {
             this.state = Scanner.START_STATE;
             return this.makeToken(Token.tokens.BLOCKCOMMENT_TOKEN, bufferStr);
           } else {
-            this.state = Scanner.START_STATE;
-            this.reader.retract();
-            return this.makeToken(Token.tokens.DIV_TOKEN);
+            // This is the original DIV_TOKEN logic from SLASH_STATE
+            // It should only be reached if SLASH_STATE determined it's not a comment.
+            // We need to ensure paths starting with / are routed to IDENTIFIER_STATE from START_STATE.
+            // If execution reaches here, it means '/' was not part of a comment.
+            // The modified START_STATE should ideally handle path-starting slashes.
+            // If it's a simple '/', it becomes DIV_TOKEN.
+            this.state = Scanner.START_STATE; // Reset state
+            this.reader.retract(); // Retract the character after '/' that wasn't part of a comment
+            return this.makeToken(Token.tokens.DIV_TOKEN, "/");
           }
       }
     }
   }
 }
 
+// Ensure Reader has a peekChar method if used, or simulate with nextChar/retract
+// For this implementation, I've used nextChar/retract to simulate peeking.
+
 Scanner.START_STATE = 1; // every FSM should have a start state
 Scanner.IDENTIFIER_STATE = Scanner.START_STATE + 1;
-Scanner.SLASH_STATE = Scanner.IDENTIFIER_STATE + 1;
+Scanner.SLASH_STATE = Scanner.IDENTIFIER_STATE + 1; // For actual comment parsing
+Scanner.DIRECTIVE_STATE = Scanner.SLASH_STATE + 1;
 
 module.exports = Scanner;

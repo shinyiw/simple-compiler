@@ -14,6 +14,14 @@ class Errors {
       cb(errors[i], i);
     }
   }
+
+  static getErrorCount() {
+    return errors.length;
+  }
+
+  static getAllErrors() {
+    return errors;
+  }
 }
 
 Errors.SYNTAX_ERROR = 0;

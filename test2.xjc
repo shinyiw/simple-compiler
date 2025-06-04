@@ -1,0 +1,22 @@
+#DEFINE  <rule>  THJPL2205E.func
+#DEFINE <model>   TM60L2252X_augmented             'PR model  'OPC LE
+'---------------------------- Defocus 3D PR model
+#DEFINE <model2>  TM60L2252X_augmented       'model file
+'---------------------------- Defocus 3D Trench model
+#DEFINE <model4>  TM60L2252X_augmented       'model file
+'---------------------------- 3D PR model
+#DEFINE <model3>  TM60L2252XR3DPF30      'model file
+'---------------------------- MCROFF
+#DEFINE <model11> TM60L2252XMCROFF_augmented
+
+'---------------------------- 3D Trench model
+#DEFINE <model1>  TM60L2252X_augmented       'model file
+'---------------------------- 3bar model
+#DEFINE <model5>  TM60L2252XNCD2NMB05PF40       'model file
+
+'---------------------------- Real Defocus PR model
+#DEFINE <model6>  TM60L2252XR3DPF30       'model file
+
+#INCLUDE   /disk3/RABIT/Rules/TH60L2252E.setting
+#INCLUDE   /disk3/RABIT/Rules/TH60L2292H_DOE.setting
+#INCLUDE   /disk3/RABIT/Rules/TH60L2292H_PLRC.setting
